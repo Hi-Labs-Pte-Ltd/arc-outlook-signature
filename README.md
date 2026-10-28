@@ -1,0 +1,407 @@
+# Outlook 统一签名加载项（Hi Labs 模板）— 部署与使用说明
+
+> 这是 Hi Labs 的模板仓库。每个客户从这里生成一个**自己 GitHub org 里的独立仓库**（见步骤 1），客户数据只放在客户仓库里。
+> 下文的 `example.com`、`EXC`、`Example Company` 都是占位，分别换成客户的域名、简称（`config.js` 的 `shortName`）和公司名。
+
+**新客户要改的文件：**
+
+| 文件 | 改什么 |
+|---|---|
+| `src/config.js` | 公司名 / 简称 / 网址 / 总机 / 地址 / 条款链接、品牌色 `colors`、共享邮箱 `sharedMailboxes`、图片 `images` |
+| `addin.config.json` | `baseUrl`、`clientId`、`tenantId`（步骤 4–5）、`addinId`（运行 `uuidgen` 生成新的，**不要和别的客户重复**）、`providerName`、`displayName` |
+| `src/assets/logo.png` | 客户 Logo，2 倍分辨率（显示 150×91 就放 300×182） |
+| `src/assets/icon-*.png` | 加载项图标（16 / 25 / 32 / 48 / 64 / 80 / 128 px） |
+
+测试用的是 `test/fixture.config.js`（虚构数据），改客户的 `config.js` 不会让测试失败。改完先跑 `npm run build && npm test && npm run preview`，打开 `preview.html` 看效果。
+
+给客户确认设计：在仓库根目录放一个 `preview.config.json`（`language: "en"`、示例员工 `person` / `teamMember`、`notes` 说明、`questions` 待确认事项），再跑 `npm run preview`，用 Chrome 把 `preview.html` 打印成 PDF 发给客户。
+
+`config.js` 里可选的区块（默认都关）：`titlePosition: "inline"`（“姓名 | 职位” 同一行）、`showCompanyInFull`、`notice`（节假日通知，`until` 日期过后自动消失）、`tagline` + `images.taglineBadge`（标语和小徽章）、`images.banner` + `bannerUrl`（宣传横幅）、`company.disclaimer`（多段免责声明）。
+
+| 项目 | 值 |
+|---|---|
+| 托管地址 | `https://sig.example.com`（GitHub Pages + 自定义子域名） |
+| 发件邮箱 | `@example.com`（不受影响，不需要改邮件相关的 DNS 设置） |
+| 需要的权限 | example.com 的 DNS 管理权限、GitHub 账号、M365 全局管理员（或应用管理员 + Exchange 管理员） |
+
+加载项在员工**新建 / 回复 / 转发**邮件时自动插入公司统一签名。经典 Outlook、新版 Outlook、网页版、Mac、iOS、Android 用的都是同一套模板。
+
+- 个人信息（姓名、手机、电话、分机、职位）从 **Entra ID** 自动读取
+- 公司信息、Logo、免责声明在 `src/config.js` 里统一修改，推送到 GitHub 后全员自动生效
+- **完整签名**用于新邮件、会话中的第一次回复和转发；**精简签名**（无图片，含公司地址）用于同一会话中的后续回复
+- 用**共享邮箱**（如 Import Air、Accounts）发信时自动换成**团队版签名**：本人姓名 + 团队名、团队电话和团队邮箱，见[共享邮箱（团队签名）](#共享邮箱团队签名)
+- 图片以内嵌方式插入，收件人**看不到** example.com，各个客户端显示一致
+
+---
+
+## 部署总览
+
+| # | 步骤 | 在哪里操作 | 用时 |
+|---|---|---|---|
+| 0 | 补全员工 Entra 资料 | M365 管理中心 | 视人数而定 |
+| 1 | 建 GitHub 仓库并上传代码 | GitHub | 10 分钟 |
+| 2 | 添加 DNS 记录 `sig` | example.com 的 DNS 服务商 | 5 分钟（生效 5 分钟到数小时） |
+| 3 | 开启 GitHub Pages 并绑定域名 | GitHub | 10 分钟（HTTPS 证书最多等 24 小时） |
+| 4 | 在 Entra 注册应用 | Entra 管理中心 | 10 分钟 |
+| 5 | 填 clientId / tenantId 并推送 | GitHub | 5 分钟 |
+| 6 | 检查线上文件 | 浏览器 | 2 分钟 |
+| 7 | 部署给试点用户 | M365 管理中心 → 集成应用 | 5 分钟（生效最长 24 小时） |
+| 8 | 测试，然后推给全员 | Outlook 各客户端 | — |
+
+---
+
+## 步骤 0：补全员工的 Entra 资料
+
+签名内容取决于 Entra 里填了什么，**缺哪个字段，签名里就少哪一行**。
+
+| 签名项 | Entra 字段 | 填写示例 |
+|---|---|---|
+| 姓名 | Display name | Jane Doe |
+| 职位（精简签名显示） | Job title | Managing Director – Australia |
+| Mob | Mobile phone | +61 400 111 222 |
+| Tel + EXT | Office phone | `+61 2 0000 0000 EXT 601` |
+
+在哪里填：[M365 管理中心](https://admin.microsoft.com) → 用户 → 活跃用户 → 选中用户 → **管理联系信息**。
+
+批量修改用 PowerShell：
+
+```powershell
+Install-Module Microsoft.Graph.Users -Scope CurrentUser   # 首次运行需要安装
+Connect-MgGraph -Scopes "User.ReadWrite.All"
+Update-MgUser -UserId jane.doe@example.com `
+  -MobilePhone "+61 400 111 222" `
+  -BusinessPhones @("+61 2 0000 0000 EXT 601") `
+  -JobTitle "Managing Director – Australia"
+```
+
+> 分机也可以不写进电话，改填在 Exchange 自定义属性 1（extensionAttribute1），例如 `601`。办公电话留空的人，签名里会显示总机号码。
+
+---
+
+## 步骤 1：建 GitHub 仓库并上传代码
+
+先让客户建好自己的 GitHub org（客户老板做 Owner，把你的账号也加成 Owner）。仓库建在客户的 org 里，**不要建在 Hi Labs 的 org 里**。
+
+1. 打开 Hi Labs 模板仓库 `Hi-Labs-Pte-Ltd/outlook-signature-template` → **Use this template → Create a new repository**
+   - Owner：选**客户的 org**
+   - Repository name：`outlook-signature`
+   - 选 **Public**。免费版 GitHub 只有公开仓库能用 Pages；如果客户有 GitHub Team 或 Enterprise，可以选 Private。
+   - **不要用 Fork**：fork 会带上模板的全部提交历史，并且在 GitHub 上显示和模板的关联。
+2. 如果 Owner 里选不到客户的 org，用命令行建一份没有历史的副本：
+
+   ```bash
+   git clone https://github.com/Hi-Labs-Pte-Ltd/outlook-signature-template.git outlook-signature
+   cd outlook-signature
+   rm -rf .git && git init -b main
+   git add . && git commit -m "Outlook signature add-in"
+   git remote add origin https://github.com/<客户的org>/outlook-signature.git
+   git push -u origin main
+   ```
+
+   模板仓库本身被标记为 **Template repository**，`deploy.yml` 只在由模板生成的仓库里发布（`is_template` 为 false）。命令行复制出来的仓库不是模板，也会正常发布。
+
+3. 第一次推送后，Actions 页面会出现一次失败的部署，这是正常的（Pages 还没开启）。步骤 3 完成后会重新运行。
+
+> 仓库公开是安全的：里面只有 HTML、JS、Logo 和 clientId。clientId 不是密钥，本来就会出现在前端代码里。**员工资料不在仓库中**，是运行时从 Graph 读取的。
+
+---
+
+## 步骤 2：在 example.com 添加 DNS 记录
+
+到 example.com 的 DNS 管理后台（域名在哪里注册或托管就去哪里，比如 GoDaddy、Cloudflare、阿里云），新增一条记录：
+
+| 类型 | 主机 / 名称 | 值 / 指向 | TTL |
+|---|---|---|---|
+| **CNAME** | `sig` | `<你的 GitHub 用户名或组织名>.github.io` | 默认（1 小时） |
+
+- 例如 GitHub 用户名是 `your-org`，值就填 `your-org.github.io`。**不要带仓库名，也不要加 `https://`**。
+- 如果用的是 **Cloudflare**：必须把代理状态设为 **仅 DNS（灰色云朵）**，否则 GitHub 无法签发 HTTPS 证书。
+- 检查是否生效（Windows 命令提示符）：`nslookup sig.example.com`，结果里能看到 `github.io` 就说明生效了。
+
+**建议（可选）：在 GitHub 验证域名，防止子域名被别人抢占**
+
+1. GitHub 右上角头像 → **Settings → Pages → Add a domain**，输入 `example.com`
+2. 按页面提示在 DNS 里加一条 **TXT** 记录（名称类似 `_github-pages-challenge-<用户名>`）
+3. 回到 GitHub 点 **Verify**
+
+---
+
+## 步骤 3：开启 GitHub Pages 并绑定域名
+
+1. 进入仓库 → **Settings → Pages**
+2. **Build and deployment → Source** 选 **GitHub Actions**
+3. **Custom domain** 填 `sig.example.com` → **Save**
+   - 页面会显示 “DNS check in progress”，通过后显示绿色的 “DNS check successful”
+4. 等证书签发（通常几分钟，最多 24 小时），然后勾选 **Enforce HTTPS**
+   - 如果这个选项是灰色的，说明证书还没签发好，稍后刷新再勾
+5. 进入 **Actions** 标签 → 左侧选 **Build & deploy to GitHub Pages** → 右侧 **Run workflow**，重新运行一次
+
+> 构建时会根据 `baseUrl` 自动生成 `CNAME` 文件，所以以后每次发布，自定义域名都不会丢失。
+
+---
+
+## 步骤 4：在 Entra 注册应用
+
+打开 [Entra 管理中心](https://entra.microsoft.com) → **标识 → 应用程序 → 应用注册 → 新注册**：
+
+| 字段 | 填写 |
+|---|---|
+| 名称 | `EXC Outlook Signature` |
+| 受支持的账户类型 | **仅此组织目录中的账户（单一租户）** |
+| 重定向 URI | 平台选 **单页应用程序 (SPA)**，值填 `brk-multihub://sig.example.com` |
+
+注册后：
+
+1. 在 **概述** 页复制两个值，步骤 5 要用：
+   - **应用程序(客户端) ID**
+   - **目录(租户) ID**
+2. **API 权限 → 添加权限 → Microsoft Graph → 委托的权限**，搜索并勾选：
+   - `User.Read`：读取本人资料
+   - `Mail.ReadBasic`：只读邮件的发件人和时间等元数据，**读不到正文**，用来判断本人是否已在这个会话里回复过（`config.js` 里 `useShortSignature: false` 时不需要，只加 `User.Read`）
+3. 点击 **代表你的组织授予管理员同意 → 是**。权限的状态都应显示绿色的“已授予”。
+
+> 重定向 URI 必须**只写域名**，前缀是 `brk-multihub://`，不能写 `https://`，末尾也不能有 `/`。这里填错的话，所有人都读不到 Entra 资料。
+
+---
+
+## 步骤 5：填 clientId / tenantId 并推送
+
+两种方法任选一种。
+
+**方法 A：改文件**。在 GitHub 网页上打开 `addin.config.json` → 点铅笔图标编辑：
+
+```json
+{
+  "baseUrl": "https://sig.example.com",
+  "clientId": "<步骤 4 的应用程序(客户端) ID>",
+  "tenantId": "<步骤 4 的目录(租户) ID>",
+  "addinId": "<uuidgen 生成的新 GUID>",
+  "version": "1.0.0.0",
+  ...
+}
+```
+
+然后 **Commit changes**。
+
+**方法 B：用仓库变量**，不改文件。仓库 **Settings → Secrets and variables → Actions → Variables** 标签 → **New repository variable**：
+
+- `ADDIN_CLIENT_ID` = 应用程序(客户端) ID
+- `ADDIN_TENANT_ID` = 目录(租户) ID
+
+设置完后，去 Actions 手动 **Run workflow** 一次。
+
+**顺便修改 `src/config.js` 里的这两处：**
+
+- `termsUrl`：改成你们保密声明 / T&C 的真实链接（现在是占位地址 `https://www.example.com/terms`）
+- 如需调整总机号码、地址或结束语，也在这里改
+
+**替换图片：** `src/assets/logo.png` 和 `src/assets/icon-*.png` 是模板占位图，换成客户的设计原稿。需要底部徽章或品牌标志时，把图片放进 `src/assets/`，在 `config.js` 的 `images` 里填文件名和尺寸，再设置 `markPosition`。
+- 使用 PNG 格式，不能用 SVG
+- Logo 尺寸 262×162，徽章 260×168（显示尺寸的 2 倍）
+- 单张 50KB 以内
+- 文件名保持不变
+
+每次提交后，Actions 会自动运行测试、构建和发布，大约 1–2 分钟。在 Actions 页面看到绿色勾就说明成功了。
+
+---
+
+## 步骤 6：检查线上文件
+
+在浏览器中逐个打开以下地址，都应该能正常显示，并且地址栏有锁形图标：
+
+| 地址 | 应看到的内容 |
+|---|---|
+| https://sig.example.com/manifest.xml | XML 内容，里面所有地址都是 `sig.example.com` |
+| https://sig.example.com/commands.html | 空白页（正常） |
+| https://sig.example.com/launchevent.js | 一大段压缩过的 JS |
+| https://sig.example.com/.well-known/microsoft-officeaddins-allowed.json | `{ "allowed": ["https://sig.example.com/launchevent.js"] }` |
+| https://sig.example.com/assets/logo.png | 客户 Logo |
+
+如果 `.well-known` 打不开，说明隐藏文件没有发布成功：检查 `.github/workflows/deploy.yml` 里有没有 `include-hidden-files: true`，以及 Actions 是否运行成功。
+
+---
+
+## 步骤 7：部署给试点用户
+
+1. 在浏览器打开 https://sig.example.com/manifest.xml → 右键 **另存为** `manifest.xml`
+2. [M365 管理中心](https://admin.microsoft.com) → **设置 → 集成应用 → 上传自定义应用**
+3. 应用类型选 **Office 加载项** → **上传清单文件 (.xml)** → 选择刚才的 `manifest.xml`
+4. **分配用户**：**先选 2–3 个试点用户**（比如你自己和客户的 IT 负责人）
+5. 接受权限 → **完成部署**
+6. 最长 24 小时生效，通常 1–6 小时。生效后：
+   - 网页版：刷新页面
+   - 经典 / 新版 Outlook：完全退出后重新打开
+   - 手机：强制关闭 Outlook App 后重新打开
+
+---
+
+## 步骤 8：测试，然后推给全员
+
+在试点用户的每个客户端（网页版、新版 Outlook、经典 Outlook、手机）上逐项测试：
+
+- [ ] 新建邮件 → 自动出现**完整签名**，Logo 和徽章显示正常
+- [ ] 回复一封从未回复过的外部来信 → **完整签名**
+- [ ] 同一会话再回复一次 → **精简签名**（姓名 | 职位 / Example Company | 地址 / 电话）
+- [ ] 转发 → **完整签名**
+- [ ] 发一封到外部邮箱（Gmail、QQ 邮箱），确认对方收到后图片正常显示
+- [ ] 撰写邮件时点功能区的 **EXC Signature** 按钮 → 面板显示“✔ 已连接 Entra ID”，个人资料正确
+- [ ] 在共享邮箱里新建 / 回复邮件 → **团队版签名**（团队名、团队电话和邮箱，没有个人手机）
+- [ ] 在个人邮箱新建邮件，把发件人改成共享邮箱 → 签名自动换成团队版；改回个人 → 换回个人签名
+
+测试通过后：
+
+1. 集成应用 → 点击 **EXC Email Signature** → **编辑用户** → 改为 **整个组织**，或者只分配给某个组
+2. 通知员工：删除 Outlook 里原来的个人签名。路径是 Outlook → 设置 → 账户 → 签名，删除签名，并把“新邮件”和“回复 / 转发”的默认签名都设为“无”。手机端在 设置 → 签名 里清空。
+
+> 加载项会自动屏蔽本地签名，所以不删也不会出现两份签名；删掉是为了避免员工混淆。
+
+---
+
+## 签名规则
+
+| 场景 | 签名 |
+|---|---|
+| 新邮件 | 完整签名 |
+| 回复：本人还没有在这个会话里发过邮件 | 完整签名 |
+| 回复：本人已经在这个会话里发过邮件 | 精简签名 |
+| 转发 | 完整签名（改成按回复规则处理：在 `config.js` 里设 `forwardAlwaysFull: false`） |
+
+判断方式：通过 Graph 查本人“已发送邮件”里有没有同一会话的记录。Graph 不可用时，改为检查引用的历史邮件里有没有本人的手机号，或者 “Email 本人邮箱” 这一行。
+
+---
+
+## 共享邮箱（团队签名）
+
+发件人 (From) 是 `src/config.js` 里 `sharedMailboxes` 登记的地址时，签名自动换成团队版：
+
+| 签名项 | 个人签名 | 团队版签名 |
+|---|---|---|
+| 姓名、职位 | 本人 | 本人，职位后面加团队名（如 `EXC Import Air`） |
+| Mobile | 本人手机 | 不显示（该团队设了 `showMobile: true` 才显示） |
+| Tel + Ext | 本人 | 团队电话和分机 |
+| Email | 本人邮箱 | 团队邮箱（`addresses` 里的第一个） |
+
+- 新邮件和转发用完整签名。回复时，引用的历史邮件里已经有这个团队的签名就用精简签名，否则用完整签名，不管之前是团队里谁回复的。
+- 撰写时切换发件人（个人 ↔ 共享邮箱），签名会跟着换。
+- 读不到发件人本人资料时（没登录授权），姓名位置显示团队名。
+
+**新增或修改团队**：在 `sharedMailboxes` 里加一行或改一行 → 提交。不需要重新上传 manifest。
+
+```js
+{ addresses: ["importair@example.com.au", "au.importair@example.com"], team: "EXC Import Air", phone: "+61 2 0000 0000", ext: "821" },
+```
+
+`addresses` 要写全这个邮箱在 Exchange 里的**主地址和所有别名**：第一个显示在签名里，其余只用来识别发件人。漏写的话，用那个地址发信时出来的还是个人签名。
+
+### 兜底：手机和加载项没运行的场景
+
+Outlook 手机版不运行加载项；共享邮箱在网页版里单独打开时，加载项也可能不运行。这两种情况分两层补上：
+
+**1. 服务器兜底（Exchange 邮件流规则）**：共享邮箱发出的邮件如果没有加载项签名，Exchange 在**整封邮件的最末尾**追加团队信息（团队名、电话分机、团队邮箱、网址、地址、免责声明，没有发件人姓名）。回复或转发时，它在所有引用的历史邮件之后。
+
+- 加载项插入签名时会给邮件加一个头 `X-Email-Signature`，规则看到它就跳过
+- 邮件里已经有“团队名 | 公司名”这一行（手机签名，或同一个 chain 里之前追加过）也跳过，不会叠加
+- 规则脚本由 `config.js` 自动生成，发布在 https://sig.example.com/exchange/fallback-rules.ps1
+
+安装或更新（Exchange 管理员，Windows PowerShell 或 PowerShell 7 都可以）：
+
+```powershell
+Install-Module ExchangeOnlineManagement -Scope CurrentUser   # 第一次需要
+Connect-ExchangeOnline
+.\fallback-rules.ps1                                         # 可以重复运行，已有规则会被更新
+```
+
+改了 `sharedMailboxes`（新增团队、改分机）后，等网站发布完成，重新下载并运行一次脚本。规则在 Exchange 管理中心 → 邮件流 → 规则 里能看到，名字是 `EXC signature fallback - <团队名>`。
+
+**2. 手机签名**：员工在 Outlook 手机版里给共享邮箱账户设一次文字签名，位置正确（紧跟回复文字）。在手机上打开 https://sig.example.com/mobile-signatures.html ，复制自己团队那一段，按页面上的步骤粘贴。“团队名 | 公司名”这一行不要改，服务器靠它判断已经有签名。
+
+**不要把共享邮箱加进“集成应用”的分配用户里。** 加载项只部署给人（用户自己的邮箱），用户用共享邮箱发信时会自动带上。另外共享邮箱不要从通讯录 (GAL) 隐藏，否则加载项在这个邮箱里读不到邮件。
+
+---
+
+## 日常维护
+
+| 需求 | 操作 | 需要重新上传 manifest 吗 |
+|---|---|---|
+| 员工换手机、升职 | 在 Entra 修改；最迟 12 小时后签名自动更新，或让员工在面板点“刷新资料” | 否 |
+| 新员工入职 | 补全 Entra 资料即可（加载项已分配给整个组织或组） | 否 |
+| 改公司地址、网址、免责声明、结束语 | 修改 `src/config.js` → 提交 | 否 |
+| 新增共享邮箱，改团队名、电话、分机 | 修改 `src/config.js` 的 `sharedMailboxes` → 提交 | 否 |
+| 换 Logo 或徽章 | 替换 `src/assets/` 里的文件 → 提交 | 否 |
+| 改签名样式 | 修改 `src/shared/signature.js` → 提交 | 否 |
+| 改按钮名称、权限（manifest） | 修改 `manifest.template.xml`，把 `addin.config.json` 的 `version` 改大（如 `1.1.0.0` → `1.1.1.0`）→ 提交 → 集成应用里**更新**加载项 | **是** |
+
+> WCA 徽章上印有到期日 **2027 年 4 月 7 日**，续期后记得更换图片。
+
+---
+
+## 故障排查
+
+| 现象 | 可能原因 / 处理 |
+|---|---|
+| 完全没有签名 | ① 部署还没生效（最长 24 小时）② 该用户没有被分配 ③ Outlook 版本过低（见下表）④ 打开 `commands.html` 检查站点是否正常 |
+| 只有姓名和邮箱，并提示“请打开签名面板” | 读不到 Entra 资料：① 是否已授予管理员同意 ② 重定向 URI 是否为 `brk-multihub://sig.example.com` ③ clientId / tenantId 是否正确 ④ 经典 Outlook 还要确认 `.well-known` 文件能打开 |
+| GitHub Pages 显示 DNS 检查失败 | CNAME 记录填错（不要带仓库名或 `https://`），Cloudflare 没有关闭代理，或者 DNS 还没生效 |
+| “Enforce HTTPS” 一直是灰色 | 证书还在签发中，最多等 24 小时；可以把 Custom domain 删掉后重新填一次，触发重新签发 |
+| Actions 构建失败 | 点开失败的任务看日志，常见原因是 JSON 格式写错（多了或少了逗号） |
+| 出现两份签名 | 客户端版本过低，不支持屏蔽本地签名 → 删除本地签名 |
+| 签名里某一行缺失 | Entra 里对应字段为空，面板里会标红显示“未填写” |
+| 第二次回复还是完整签名 | 第一次回复还在草稿或发件箱里，没有进入“已发送邮件” |
+| 用共享邮箱发信，出来的是个人签名 | ① 这个发件地址没写进 `sharedMailboxes` 的 `addresses`（主地址和别名都要写）② 集成应用里的 manifest 还是 1.0.0.0，没有更新到 1.1.0.0 |
+| 用共享邮箱发信完全没有签名 | ① 集成应用里的 manifest 还是 1.0.0.0 ② 用的是 Outlook 手机版（见已知限制）③ 共享邮箱被从通讯录 (GAL) 隐藏了 |
+| 手机上点底部“回复”后看不到签名 | Outlook 手机端的已知行为：签名已经插入，展开为全屏编辑就能看到 |
+| Apple Mail 收件人看到 Logo 显示为附件 | 内嵌图片的正常表现；介意的话可以把 `imageMode` 改为 `"link"`（代价是 Outlook 收件人默认可能不显示图片） |
+
+**客户端最低版本**（低于这些版本只能用缓存资料或基本信息）：
+
+| 客户端 | 版本 |
+|---|---|
+| 网页版 / 新版 Outlook | 无要求 |
+| 经典 Outlook (Windows, Microsoft 365) | 2409 (Build 18025) 及以上 |
+| Outlook for Mac | 16.89 及以上 |
+| Outlook iOS / Android | 4.2433 及以上 |
+
+查看日志：网页版按 F12 看控制台，搜索 `[SIG]`。经典 Outlook 可以开启 [runtime logging](https://learn.microsoft.com/office/dev/add-ins/testing/runtime-logging)。
+
+---
+
+## 已知限制
+
+- 打开已有草稿时不会自动插入签名（Outlook 的设计），需要的话可以在面板里手动插入
+- iOS 上通过“共享”新建的邮件不会触发
+- Outlook 手机版（iOS / Android）不支持在共享邮箱里运行加载项：手机发信靠手机签名和服务器兜底（见“兜底：手机和加载项没运行的场景”）
+- 服务器兜底只能加在整封邮件的最顶部或最底部，回复时会在引用内容之后
+- 没有登记在 `sharedMailboxes` 里的共享邮箱，以及“代表另一位同事发送”，签名仍然是当前登录用户的
+- 只处理邮件，不处理会议邀请
+- **example.com 必须长期续费、DNS 必须保持不变**，否则全公司的签名都会失效。换域名时要按步骤 2–7 重新做一遍（包括在 Entra 里改重定向 URI）
+
+---
+
+## 本地开发（可选）
+
+```bash
+npm install
+npm test          # 单元测试：模板、分机解析、会话判断、共享邮箱、事件处理流程
+npm run preview   # 生成 preview.html，用示例资料预览两种签名
+npm run build     # 生成 dist/
+```
+
+## 文件结构
+
+```
+addin.config.json            ★ 部署参数（域名、clientId、tenantId、版本）
+src/config.js                ★ 公司信息、共享邮箱团队信息与签名规则
+src/assets/                  ★ Logo、徽章、按钮图标
+src/shared/signature.js      完整签名 / 精简签名 HTML 模板
+src/shared/profile.js        Entra 资料标准化、分机解析、共享邮箱识别、会话判断
+src/shared/fallback.js       共享邮箱兜底：Exchange 规则脚本、手机签名页
+src/shared/graph.js          NAA 单点登录 + Microsoft Graph
+src/shared/office.js         读取发件人、判断签名类型、插入签名
+src/launchevent/             事件入口（新建 / 回复 / 转发时插入，切换发件人时替换）
+src/taskpane/                签名侧边面板
+src/well-known/              经典 Outlook 需要的 SSO 白名单
+manifest.template.xml        加载项清单模板
+scripts/                     构建和预览脚本
+test/                        单元测试
+.github/workflows/deploy.yml 推送后自动测试、构建并发布到 GitHub Pages
+```

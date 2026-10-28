@@ -1,0 +1,8 @@
+node_modules/
+dist/
+src/generated/
+preview.png
+preview.html
+# 预览里有员工真实姓名和手机，仓库是公开的，只留在本地
+preview.config.json
+*.pdf

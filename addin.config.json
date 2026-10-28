@@ -1,0 +1,10 @@
+{
+  "_comment": "每个客户都要改：baseUrl（加载项托管地址，必须 HTTPS 且放在域名根目录）、clientId、tenantId（客户 Entra 应用）、addinId（uuidgen 生成新的）、providerName、displayName。改完运行 npm run build。",
+  "baseUrl": "https://sig.arccapitalgroup.com.au",
+  "clientId": "6fca2c7c-baae-4f9f-9a10-35bd05860fe9",
+  "tenantId": "e69c31e7-f765-48a0-9ca0-7d5641895229",
+  "addinId": "0d5cabd3-337a-4335-8b93-6ad5d8c85fa2",
+  "version": "1.0.0.0",
+  "providerName": "Arc Capital Group",
+  "displayName": "ARC Email Signature"
+}

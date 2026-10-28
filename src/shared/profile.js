@@ -1,0 +1,117 @@
+/**
+ * 用户资料：Graph /me → 标准化对象。纯函数部分可在 Node 中测试。
+ */
+
+export const GRAPH_SELECT = [
+  "displayName", "givenName", "surname", "jobTitle", "department", "mail", "userPrincipalName",
+  "mobilePhone", "businessPhones", "officeLocation", "streetAddress", "city", "state", "postalCode",
+  "onPremisesExtensionAttributes",
+].join(",");
+
+/** "+61 2 0000 0000 EXT 601" / "+61 2 0000 0000 x601" / "+61 2 0000 0000 ext.601" → { number, ext } */
+export function splitExtension(raw) {
+  if (!raw) return { number: "", ext: "" };
+  // 只填了分机（如 "EXT 602" / "x602" / "602"）
+  const only = String(raw).match(/^\s*(?:ext\.?|extension|x|#)?\s*(\d{1,6})\s*$/i);
+  if (only) return { number: "", ext: only[1] };
+  const m = String(raw).match(/^(.*?)[\s,;]*(?:ext\.?|extension|x|#)\s*(\d{1,6})\s*$/i);
+  if (m && m[1].replace(/\D/g, "").length >= 6) return { number: m[1].trim(), ext: m[2] };
+  return { number: String(raw).trim(), ext: "" };
+}
+
+/**
+ * @param {object} me  Graph /me 返回（可能为 null）
+ * @param {object} cfg SIGNATURE_CONFIG
+ * @param {object} fallback { displayName, emailAddress } —— 来自 Office.context.mailbox.userProfile
+ */
+export function normalizeProfile(me, cfg, fallback) {
+  me = me || {};
+  fallback = fallback || {};
+  const bp = (me.businessPhones && me.businessPhones[0]) || "";
+  const split = splitExtension(bp);
+  let ext = split.ext;
+  if (!ext && me.onPremisesExtensionAttributes && cfg.extensionAttribute) {
+    const v = me.onPremisesExtensionAttributes[cfg.extensionAttribute];
+    if (v) ext = String(v).replace(/^\s*(ext\.?|x)\s*/i, "").trim();
+  }
+  return {
+    displayName: me.displayName || fallback.displayName || "",
+    jobTitle: me.jobTitle || "",
+    department: me.department || "",
+    email: (me.mail || fallback.emailAddress || me.userPrincipalName || "").toLowerCase(),
+    // 登录账号：用来确认缓存的资料属于当前登录的人（见 office.js loadProfile）
+    upn: (me.userPrincipalName || "").toLowerCase(),
+    mobile: (me.mobilePhone || "").trim(),
+    phone: split.number || (cfg.company && cfg.company.mainPhone) || "",
+    ext: ext || "",
+    // 不读取 Entra 的街道地址（通常是员工住址），签名统一使用公司地址
+    address: "",
+    source: me.displayName ? "graph" : "fallback",
+  };
+}
+
+/** 按发件人地址查共享邮箱配置（config.js sharedMailboxes）；不是共享邮箱返回 null */
+export function findSharedMailbox(address, cfg) {
+  const a = String(address || "").trim().toLowerCase();
+  const list = (cfg && cfg.sharedMailboxes) || [];
+  if (!a) return null;
+  for (let i = 0; i < list.length; i++) {
+    if ((list[i].addresses || []).some((x) => String(x).toLowerCase() === a)) return list[i];
+  }
+  return null;
+}
+
+/**
+ * 团队版资料：姓名、职位仍是发件人本人，电话 / 分机 / 邮箱换成团队的，默认不带个人手机。
+ * @param {object} person normalizeProfile 的结果
+ * @param {object} box    findSharedMailbox 的结果
+ */
+export function teamProfile(person, box, cfg) {
+  const addresses = (box.addresses || []).map((x) => String(x).toLowerCase());
+  // showSender=false：签名只显示团队（团队名 + box.title），不显示是谁发的。
+  // 读不到发件人本人资料（只拿到共享邮箱自己的名字，或什么都没有）时，也用团队名代替姓名
+  const anonymous = box.showSender === false || !person.displayName || (person.source === "fallback" && addresses.indexOf(person.email) !== -1);
+  return {
+    displayName: anonymous ? box.team : person.displayName,
+    jobTitle: anonymous ? box.title || "" : person.jobTitle,
+    team: anonymous ? "" : box.team,
+    department: person.department,
+    email: addresses[0] || "",
+    upn: person.upn,
+    mobile: box.showMobile ? person.mobile : "",
+    phone: box.phone || (cfg.company && cfg.company.mainPhone) || "",
+    ext: String(box.ext || "").replace(/^\s*(ext\.?|x)\s*/i, "").trim(),
+    address: "",
+    source: person.source,
+    shared: true,
+  };
+}
+
+function digits(s) {
+  return String(s || "").replace(/\D/g, "");
+}
+
+/**
+ * 判断引用的历史邮件正文里是否已经出现过“本人”的签名。
+ * 用于 Graph 不可用时的兜底判断。
+ * 指纹：本人手机号（纯数字）或 “Email <本人邮箱>” 这一行（邮件头的 From/To 行不会以 "Email" 开头）。
+ * 团队版签名只认 “Email <团队邮箱>”：同一个人的个人签名和团队签名不会互相误判。
+ * @param {string} [emailLabel] 签名里邮箱那一行的标签（config labels.email），默认 "Email"
+ */
+export function bodyHasOwnSignature(bodyText, profile, emailLabel) {
+  if (!bodyText || !profile) return false;
+  const text = String(bodyText);
+  const mob = profile.shared ? "" : digits(profile.mobile);
+  if (mob.length >= 8) {
+    const bodyDigits = digits(text);
+    // 同时匹配国际格式和本地格式（+61 4xx / 04xx）
+    const local = mob.replace(/^61/, "0");
+    if (bodyDigits.indexOf(mob) !== -1 || (local !== mob && bodyDigits.indexOf(local) !== -1)) return true;
+  }
+  if (profile.email) {
+    const esc = (v) => v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const label = esc(emailLabel || "Email");
+    if (new RegExp("(^|\\s)" + label + "\\s*[:：]?\\s*<?(mailto:)?" + esc(profile.email), "i").test(text)) return true;
+  }
+  return false;
+}
