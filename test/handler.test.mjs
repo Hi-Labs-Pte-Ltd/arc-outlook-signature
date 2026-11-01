@@ -159,6 +159,20 @@ test("a colleague's cached profile (shared mailbox settings) is not used for the
   assert.ok(calls.signature.includes("Jane Doe") && !calls.signature.includes("Someone Else"));
 });
 
+test("no token: a colleague's cached profile is ignored, falls back to the mailbox owner", async () => {
+  const other = { displayName: "Someone Else", email: "someone.else@example.com", upn: "someone.else@example.com", mobile: "", phone: "+61 2 9000 0000", ext: "", source: "graph" };
+  const settings = { sigProfile: JSON.stringify({ v: 3, savedAt: Date.now(), profile: other }) };
+  const { calls } = await run({ composeType: "newMail", tokenFail: true, settings });
+  assert.ok(calls.signature.includes("Jane Doe") && !calls.signature.includes("Someone Else"));
+});
+
+test("no token: the owner's own cached profile is still used, matched by UPN or by email", async () => {
+  const own = { displayName: "Jane Doe", email: "jane.doe@example.com", upn: "jdoe@example.onmicrosoft.com", mobile: "+61 400 111 222", phone: "+61 2 9000 0000", ext: "", source: "graph" };
+  const settings = { sigProfile: JSON.stringify({ v: 3, savedAt: Date.now(), profile: own }) };
+  const { calls } = await run({ composeType: "newMail", tokenFail: true, settings });
+  assert.ok(calls.signature.includes("+61 400 111 222"));
+});
+
 test("the signature container id records build, decision and the From the add-in saw", async () => {
   const team = await run({ composeType: "newMail", from: "AU.Accounts@example.com" });
   assert.match(team.calls.signature, /<div id="email-signature-[a-z0-9]+-team-from-au-accounts-example-com" data-sig="full">/);
