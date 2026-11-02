@@ -193,6 +193,12 @@ test("optional blocks: inline title, company line, notice, tagline, banner, mult
   assert.ok(at("Closed 25 Dec") < at("Our slogan.") && at("Our slogan.") < at("cid:banner.png") && at("cid:banner.png") < at("Para one."));
 });
 
+test("full signature uses no colspan: wide blocks below must not stretch the logo column in Word", () => {
+  for (const cfg of [CFG, blocksCfg]) {
+    assert.ok(!buildFullSignature(normalizeProfile(me, CFG, {}), cfg, src).includes("colspan"));
+  }
+});
+
 test("notice disappears after its until date; replies keep it unless inShort=false", () => {
   const p = normalizeProfile(me, CFG, {});
   assert.ok(buildShortSignature(p, blocksCfg).includes("Closed 25 Dec"));
