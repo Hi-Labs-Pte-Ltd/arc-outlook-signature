@@ -36,6 +36,7 @@ export function normalizeProfile(me, cfg, fallback) {
   }
   return {
     displayName: me.displayName || fallback.displayName || "",
+    givenName: (me.givenName || "").trim(),
     jobTitle: me.jobTitle || "",
     department: me.department || "",
     email: (me.mail || fallback.emailAddress || me.userPrincipalName || "").toLowerCase(),
@@ -70,9 +71,14 @@ export function teamProfile(person, box, cfg) {
   const addresses = (box.addresses || []).map((x) => String(x).toLowerCase());
   // showSender=false：签名只显示团队（团队名 + box.title），不显示是谁发的。
   // 读不到发件人本人资料（只拿到共享邮箱自己的名字，或什么都没有）时，也用团队名代替姓名
-  const anonymous = box.showSender === false || !person.displayName || (person.source === "fallback" && addresses.indexOf(person.email) !== -1);
+  // showSenderFor：showSender=false 时，名单里的人（按本人邮箱或 UPN）仍显示本人姓名
+  const listed = (box.showSenderFor || []).map((x) => String(x).toLowerCase());
+  const isListed = listed.indexOf(person.email) !== -1 || listed.indexOf(person.upn) !== -1;
+  const showSender = box.showSender !== false || isListed;
+  const anonymous = !showSender || !person.displayName || (person.source === "fallback" && addresses.indexOf(person.email) !== -1);
   return {
-    displayName: anonymous ? box.team : person.displayName,
+    // 名单里的人只写名字（Entra First name，没填就取全名第一个词）：个人签名里已经是全名
+    displayName: anonymous ? box.team : isListed && box.showSender === false ? person.givenName || String(person.displayName).split(" ")[0] : person.displayName,
     jobTitle: anonymous ? box.title || "" : person.jobTitle,
     team: anonymous ? "" : box.team,
     department: person.department,

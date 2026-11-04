@@ -72,12 +72,22 @@ export const SIGNATURE_CONFIG = {
    *  - phone/ext ：团队电话和分机
    *  - showMobile：设为 true 时，这个团队的签名也显示发件人本人的手机
    *  - showSender：设为 false 时，签名不显示发件人姓名，姓名位置显示团队名，职位位置显示 title
+   *  - showSenderFor：showSender=false 时仍显示本人的人（本人邮箱），签名为“名字 | 团队名 | 职位”（名字取 Entra 的 First name）
    * 不在这张表里的共享邮箱，签名仍然是发件人本人的。新增 / 修改团队：改这里 → 提交即可，不需要重新上传 manifest。
    */
   sharedMailboxes: [
     // 和员工签名同一个模板：姓名位置是 “Info @”，职位位置是公司名，不显示是谁发的
-    { addresses: ["info@arccapitalgroup.com.au"], team: "Info @", title: "Arc Capital Group", phone: "1300 272 168", showSender: false },
-    // 地址按 info@ 的格式推断，等 ARC 确认
+    // 名单里的人发信显示“名字 | Info @ | 职位”；其他人（如 Yu-Yu、Lydia）只显示 Info @
+    {
+      addresses: ["info@arccapitalgroup.com.au"], team: "Info @", title: "Arc Capital Group", phone: "1300 272 168", showSender: false,
+      showSenderFor: [
+        "dhanleeelison@arccapitalgroup.com.au",
+        "sharaphillips@arccapitalgroup.com.au",
+        "roseanneisidro@arccapitalgroup.com.au",
+        "erindominique@arccapitalgroup.com.au",
+        "ivyjhaness@arccapitalgroup.com.au",
+      ],
+    },
     { addresses: ["approved@arccapitalgroup.com.au"], team: "Approved @", title: "Arc Capital Group", phone: "1300 272 168", showSender: false },
   ],
 

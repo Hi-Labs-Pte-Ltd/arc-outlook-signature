@@ -193,8 +193,11 @@ export function buildFullSignature(p, cfg, imageSrc) {
   const inline = cfg.titlePosition === "inline";
   const showTitle = cfg.showTitleInFull && p.jobTitle;
   let nameInner = plain(p.displayName);
+  const bar = '<span style="font-weight:normal;color:' + c.text + ';">&nbsp;|&nbsp;</span>';
+  // 团队版也在同一行：“姓名 | 团队名 | 职位”
+  if (inline && p.team) nameInner += bar + plain(p.team);
   if (inline && showTitle) {
-    nameInner += '<span style="font-weight:normal;color:' + c.text + ';">&nbsp;|&nbsp;</span><span style="font-weight:normal;color:' + (c.title || c.muted) + ';">' + plain(p.jobTitle) + "</span>";
+    nameInner += bar + '<span style="font-weight:normal;color:' + (c.title || c.muted) + ';">' + plain(p.jobTitle) + "</span>";
   }
   const nameHtml = '<div style="font-family:' + f + ";font-size:" + s.name + "px;line-height:" + (s.name + 4) + "px;font-weight:bold;color:" + c.text + ';">' + nameInner + "</div>";
   if (mark && cfg.markPosition === "name") {
@@ -209,7 +212,7 @@ export function buildFullSignature(p, cfg, imageSrc) {
   const subtitle = [
     !inline && showTitle ? plain(p.jobTitle) : "",
     cfg.showCompanyInFull ? plain(co.name) : "",
-    p.team ? teamHtml(cfg, p.team) : "",
+    !inline && p.team ? teamHtml(cfg, p.team) : "",
   ].filter(Boolean);
   if (subtitle.length) {
     html += '<div style="font-family:' + f + ";font-size:" + s.title + "px;line-height:" + (s.title + 4) + "px;color:" + c.muted + ';padding:1px 0 0 0;">' +

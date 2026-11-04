@@ -231,3 +231,20 @@ test("shared mailbox with showSender=false: team name and box title replace the 
   assert.ok(html.includes("Accounts @") && html.includes("Example Logistics") && html.includes("mailto:accounts@example.com.au"));
   assert.ok(!html.includes("Jane Doe") && !html.includes("+61 400 111 222"));
 });
+
+test("shared mailbox showSenderFor: listed senders sign as 'FirstName | Team | Title', everyone else as the team", () => {
+  const box = { ...findSharedMailbox("accounts@example.com.au", CFG), team: "Accounts @", title: "Example Logistics", showSender: false, showSenderFor: ["Jane.Doe@example.com"] };
+  const listed = teamProfile(normalizeProfile(me, CFG, {}), box, CFG);
+  assert.equal(listed.displayName, "Jane", "no Entra first name: first word of the display name");
+  assert.equal(teamProfile(normalizeProfile({ ...me, givenName: "Janie" }, CFG, {}), box, CFG).displayName, "Janie", "Entra first name wins");
+  assert.equal(normalizeProfile(me, CFG, {}).displayName, "Jane Doe", "personal signature keeps the full name");
+  assert.equal(listed.team, "Accounts @");
+  const other = teamProfile(normalizeProfile({ ...me, displayName: "Sam Lee", mail: "sam.lee@example.com" }, CFG, {}), box, CFG);
+  assert.equal(other.displayName, "Accounts @");
+  assert.equal(other.team, "");
+  const html = buildFullSignature(listed, { ...blocksCfg, company: { ...blocksCfg.company, name: "EXL Logistics" } }, src);
+  const at = (s) => html.indexOf(s);
+  assert.ok(!html.includes("Jane Doe"));
+  assert.ok(at(">Jane<") < at("Accounts @") && at("Accounts @") < at("Managing Director - Australia"), "first name | team | title on one line");
+  assert.equal(html.split("Accounts @").length - 1, 1, "team shown once, not repeated on the company line");
+});
