@@ -107,7 +107,7 @@ export const SIGNATURE_CONFIG = {
     // 标语后面的小徽章（如合作伙伴标志）
     taglineBadge: { file: "wagec-badge.png", width: 52, height: 13, alt: "Walk for WAGEC" },
     // 宣传横幅（完整签名，免责声明上方）。width/height 是显示尺寸；建议用 JPG 压到 100KB 以内，每封新邮件都会带上
-    banner: { file: "arc-banner.jpg", width: 600, height: 200, alt: "Arc Capital Group - Business Smart 8.99% p.a., Business Bridge 9.24% p.a." },
+    banner: { file: "arc-banner.jpg", width: 600, height: 200, alt: "Arc Capital Group - Business Smart 8.99% p.a., Business Bridge 9.49% p.a." },
     // 不需要底部徽章 / 标志 / 横幅就设为 null
   },
 
